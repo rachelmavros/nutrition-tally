@@ -132,21 +132,35 @@ const STATUS = {
 };
 
 /* ---------------------------------------------------------------------------
-   Model calls (Claude in the artifact — no key needed).
+   Model calls — routed through the /api/estimate serverless proxy.
 --------------------------------------------------------------------------- */
 async function callClaude(system, user) {
-  const res = await fetch("/api/estimate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ system, user }),
-  });
-  if (!res.ok) {
-    let detail = "";
-    try { detail = (await res.json()).error || ""; } catch { /* ignore */ }
-    throw new Error(detail || ("The estimator didn't respond (" + res.status + "). Try again."));
+  let res;
+  try {
+    res = await fetch("/api/estimate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ system, user }),
+    });
+  } catch {
+    throw new Error("Couldn't reach the server. Check your connection and try again.");
   }
-  const data = await res.json();
-  return (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+
+  const raw = await res.text(); // read once, parse defensively
+  let data = null;
+  if (raw) { try { data = JSON.parse(raw); } catch { /* non-JSON body */ } }
+
+  if (!res.ok) {
+    const msg = (data && data.error) ||
+      (res.status === 504 ? "The request timed out. Try a shorter entry." :
+       "The estimator didn't respond (" + res.status + "). Check the API key and Vercel logs.");
+    throw new Error(msg);
+  }
+  if (!data) throw new Error("The estimator returned an empty response. Give it another try.");
+
+  const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+  if (!text) throw new Error("The estimator sent nothing back. Try again.");
+  return text;
 }
 function extractJSON(txt) {
   let t = txt.replace(/```json/gi, "").replace(/```/g, "").trim();
@@ -169,7 +183,12 @@ const PARSE_SYS =
 
 async function parseFoods(text) {
   const raw = await callClaude(PARSE_SYS, text);
-  const obj = extractJSON(raw);
+  let obj;
+  try {
+    obj = extractJSON(raw);
+  } catch {
+    throw new Error("I couldn't read the estimate back cleanly — try again, or log a bit less at once.");
+  }
   const foods = Array.isArray(obj.foods) ? obj.foods : [];
   return foods.map((f, i) => {
     const clean = { id: Date.now() + "-" + i, name: f.name || "Food", portion: f.portion || "",

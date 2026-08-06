@@ -134,22 +134,20 @@ const STATUS = {
 /* ---------------------------------------------------------------------------
    Model calls — routed through the /api/estimate serverless proxy.
 --------------------------------------------------------------------------- */
-async function callClaude(system, user) {
+async function post(extra) {
   let res;
   try {
     res = await fetch("/api/estimate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ system, user }),
+      body: JSON.stringify(extra),
     });
   } catch {
     throw new Error("Couldn't reach the server. Check your connection and try again.");
   }
-
-  const raw = await res.text(); // read once, parse defensively
+  const raw = await res.text();
   let data = null;
   if (raw) { try { data = JSON.parse(raw); } catch { /* non-JSON body */ } }
-
   if (!res.ok) {
     const msg = (data && data.error) ||
       (res.status === 504 ? "The request timed out. Try a shorter entry." :
@@ -157,38 +155,69 @@ async function callClaude(system, user) {
     throw new Error(msg);
   }
   if (!data) throw new Error("The estimator returned an empty response. Give it another try.");
+  return data;
+}
 
+// Prose responses (coach + interpretation)
+async function callClaude(system, user) {
+  const data = await post({ system, user });
   const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
   if (!text) throw new Error("The estimator sent nothing back. Try again.");
   return text;
 }
-function extractJSON(txt) {
-  let t = txt.replace(/```json/gi, "").replace(/```/g, "").trim();
-  const s = t.indexOf("{"), e = t.lastIndexOf("}");
-  if (s >= 0 && e >= 0) t = t.slice(s, e + 1);
-  return JSON.parse(t);
+
+// Structured responses — the model is forced to call a tool, so the API returns
+// schema-valid JSON in block.input. Nothing to hand-parse, nothing to truncate.
+async function callClaudeTool(system, user, tool, model) {
+  const data = await post({
+    system, user, model, max_tokens: 3000,
+    tools: [tool],
+    tool_choice: { type: "tool", name: tool.name },
+  });
+  const block = (data.content || []).find((b) => b.type === "tool_use");
+  if (!block || !block.input) throw new Error("The estimator didn't return a usable result. Try again.");
+  return block.input;
 }
+const NUM = { type: "number" };
+const FOODS_TOOL = {
+  name: "log_foods",
+  description: "Record each food or drink the user ate with estimated nutrition values.",
+  input_schema: {
+    type: "object",
+    properties: {
+      foods: {
+        type: "array",
+        description: "One entry per distinct food or drink mentioned.",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Short food name, e.g. 'Egg bagel sandwich'." },
+            portion: { type: "string", description: "Portion actually eaten, e.g. '1 sandwich', '12 oz'." },
+            cal: NUM, protein: NUM, carbs: NUM, fat: NUM, fiber: NUM,
+            vitc: NUM, vitd: NUM, vita: NUM, vitk: NUM, b12: NUM, folate: NUM,
+            iron: NUM, calcium: NUM, magnesium: NUM, zinc: NUM, potassium: NUM,
+            omega3: NUM, sodium: NUM,
+            assumed: { type: "boolean", description: "True if the portion was assumed rather than stated." },
+            note: { type: "string", description: "Brief note, e.g. why a portion was assumed. Empty string if none." },
+          },
+          required: ["name", "portion", ...NUT_KEYS, "assumed"],
+        },
+      },
+    },
+    required: ["foods"],
+  },
+};
 
 const PARSE_SYS =
   "You are a precise nutrition estimation engine. The user describes, in free text, food they ate. " +
-  "Return ONLY minified JSON, no markdown or commentary, matching this shape: " +
-  '{"foods":[{"name":str,"portion":str,"cal":n,"protein":n,"carbs":n,"fat":n,"fiber":n,"vitc":n,"vitd":n,' +
-  '"vita":n,"vitk":n,"b12":n,"folate":n,"iron":n,"calcium":n,"magnesium":n,"zinc":n,"potassium":n,' +
-  '"omega3":n,"sodium":n,"assumed":bool,"note":str}]}. ' +
-  "Units: cal=kcal; protein,carbs,fat,fiber,omega3=g; vitc,iron,calcium,magnesium,zinc,potassium,sodium=mg; " +
-  "vitd,vita,vitk,b12,folate=micrograms. One row per distinct food or drink. Split combined dishes into their " +
-  "main components only when the user names them. If a portion isn't stated, assume one typical serving, set " +
-  'assumed=true, and give a brief reason in note (else note=""). Values are numbers only, no units, realistically ' +
-  "estimated and sensibly rounded.";
+  "Call the log_foods tool with one entry per distinct food or drink. " +
+  "Units: cal=kcal; protein,carbs,fat,fiber,omega3=grams; vitc,iron,calcium,magnesium,zinc,potassium,sodium=milligrams; " +
+  "vitd,vita,vitk,b12,folate=micrograms. Give every nutrient a realistic numeric estimate (0 if truly none). " +
+  "Split combined dishes into named components only when the user names them. If a portion isn't stated, assume one " +
+  "typical serving and set assumed=true with a brief note.";
 
 async function parseFoods(text) {
-  const raw = await callClaude(PARSE_SYS, text);
-  let obj;
-  try {
-    obj = extractJSON(raw);
-  } catch {
-    throw new Error("I couldn't read the estimate back cleanly — try again, or log a bit less at once.");
-  }
+  const obj = await callClaudeTool(PARSE_SYS, text, FOODS_TOOL, "claude-haiku-4-5");
   const foods = Array.isArray(obj.foods) ? obj.foods : [];
   return foods.map((f, i) => {
     const clean = { id: Date.now() + "-" + i, name: f.name || "Food", portion: f.portion || "",
@@ -514,31 +543,69 @@ export default function App() {
     threadEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [thread, coachBusy]);
 
-  /* speech */
+  /* speech — browsers silently end a recognition session after a pause even
+     with continuous=true, so we auto-restart until the user taps the mic off. */
   const speechOK = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
-  function toggleMic() {
-    if (!speechOK) return;
-    if (listening) { recRef.current?.stop(); return; }
+  const manualStopRef = useRef(false);
+  const baseTextRef = useRef("");   // text already in the box before the mic started
+  const finalRef = useRef("");      // finalized speech accumulated across restarts
+
+  function startRecognition() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     const rec = new SR();
-    rec.continuous = true; rec.interimResults = true; rec.lang = "en-US";
-    let base = text ? text + " " : "";
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = "en-US";
+
     rec.onresult = (e) => {
-      let s = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) s += e.results[i][0].transcript;
-      setText(base + s);
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const chunk = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalRef.current += chunk + " ";
+        else interim += chunk;
+      }
+      setText((baseTextRef.current + finalRef.current + interim).replace(/\s+/g, " "));
     };
-    rec.onerror = () => { setListening(false); setErr("Voice input was blocked here — type your foods instead."); };
-    rec.onend = () => setListening(false);
+
+    rec.onerror = (e) => {
+      if (e.error === "no-speech" || e.error === "aborted") return; // let onend restart it
+      manualStopRef.current = true;
+      setListening(false);
+      setErr(e.error === "not-allowed"
+        ? "Microphone access was blocked — allow it in your browser's site settings, or type instead."
+        : "Voice input hit a snag — type your foods instead.");
+    };
+
+    rec.onend = () => {
+      if (manualStopRef.current) { setListening(false); return; }
+      try { rec.start(); } catch { setListening(false); } // keep going through pauses
+    };
+
     recRef.current = rec;
-    try { rec.start(); setListening(true); setErr(""); }
+    rec.start();
+  }
+
+  function toggleMic() {
+    if (!speechOK) return;
+    if (listening) {
+      manualStopRef.current = true;
+      recRef.current?.stop();
+      setListening(false);
+      return;
+    }
+    manualStopRef.current = false;
+    baseTextRef.current = text ? text + " " : "";
+    finalRef.current = "";
+    setErr("");
+    try { startRecognition(); setListening(true); }
     catch { setErr("Couldn't start the mic — type your foods instead."); }
   }
 
   async function analyze() {
     const t = text.trim();
     if (!t || busy) return;
-    setBusy(true); setErr(""); if (listening) recRef.current?.stop();
+    setBusy(true); setErr("");
+    if (listening) { manualStopRef.current = true; recRef.current?.stop(); setListening(false); }
     try {
       const parsed = await parseFoods(t);
       if (!parsed.length) { setErr("I couldn't pick out any foods there. Try naming what you ate."); setBusy(false); return; }

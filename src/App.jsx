@@ -1,29 +1,37 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   Mic, MicOff, Sparkles, Trash2, Send, Salad, Droplet, Plus, Minus,
-  ChevronDown, Loader2, AlertTriangle, RotateCcw, Utensils,
-  SlidersHorizontal
+  ChevronDown, Loader2, AlertTriangle, AlertCircle, CheckCircle2, RotateCcw, Utensils,
+  SlidersHorizontal, Sun, Moon
 } from "lucide-react";
 
 /* ---------------------------------------------------------------------------
    Palette — deep botanical, warm paper, beet accent, working status scale.
-   (Artifact Tailwind has no JIT, so custom colors go through inline styles.)
+   Values are CSS custom properties (defined in StyleTag for light + dark),
+   so toggling data-theme on the root repaints the whole app.
 --------------------------------------------------------------------------- */
 const C = {
-  ink: "#163A2E",       // evergreen — brand chrome + display
-  ink2: "#2C4A3E",
-  paper: "#FBFAF6",     // warm white background
-  card: "#FFFFFF",
-  line: "#E8E5DC",
-  muted: "#5B6B63",
-  beet: "#B23A5B",      // the coach's voice + primary action
-  beetSoft: "#F7E9EE",
-  green: "#2E7D5B",     // met
-  amber: "#C08A1E",     // approaching
-  clay: "#C0492F",      // needs work
-  greenSoft: "#E6F1EB",
-  amberSoft: "#F7EED6",
-  claySoft: "#F7E3DD",
+  ink: "var(--ink)",
+  ink2: "var(--ink2)",
+  paper: "var(--paper)",
+  card: "var(--card)",
+  line: "var(--line)",
+  muted: "var(--muted)",
+  strong: "var(--strong)",     // solid dark fill that always pairs with white text
+  beet: "var(--beet)",
+  beetSoft: "var(--beet-soft)",
+  beetSoftBorder: "var(--beet-soft-border)",
+  green: "var(--green)",
+  amber: "var(--amber)",
+  clay: "var(--clay)",
+  greenSoft: "var(--green-soft)",
+  greenSoftBorder: "var(--green-soft-border)",
+  amberSoft: "var(--amber-soft)",
+  claySoft: "var(--clay-soft)",
+  barTrack: "var(--bar-track)",
+  tableHead: "var(--table-head)",
+  disabled: "var(--disabled)",
+  micDisabled: "var(--mic-disabled)",
 };
 
 const FONT_DISPLAY = "'Fraunces', Georgia, serif";
@@ -131,6 +139,14 @@ const STATUS = {
   low: { color: C.clay, soft: C.claySoft, label: "Needs work" },
 };
 
+/* status meta for the coach's bulleted feedback (good/watch/gap/tip) */
+const COACH_META = {
+  good: { Icon: CheckCircle2, color: C.green },
+  watch: { Icon: AlertCircle, color: C.amber },
+  gap: { Icon: AlertTriangle, color: C.clay },
+  tip: { Icon: Sparkles, color: C.beet },
+};
+
 /* ---------------------------------------------------------------------------
    Model calls — routed through the /api/estimate serverless proxy.
 --------------------------------------------------------------------------- */
@@ -233,7 +249,7 @@ async function parseFoods(text) {
 function Bar({ pct, color, limit }) {
   const w = Math.min(100, Math.max(0, pct));
   return (
-    <div style={{ position: "relative", height: 10, background: "#EFEDE5", borderRadius: 999 }}>
+    <div style={{ position: "relative", height: 10, background: C.barTrack, borderRadius: 999 }}>
       <div className="nc-bar" style={{ width: w + "%", height: "100%", background: color, borderRadius: 999 }} />
       {/* target notch at 100% */}
       <div style={{ position: "absolute", right: 0, top: -3, height: 16, width: 2,
@@ -281,8 +297,8 @@ function Pill({ active, children, onClick }) {
   return (
     <button onClick={onClick} className="nc-pill"
       style={{
-        border: "1px solid " + (active ? C.ink : C.line),
-        background: active ? C.ink : "#fff",
+        border: "1px solid " + (active ? C.beet : C.line),
+        background: active ? C.beet : C.card,
         color: active ? "#fff" : C.ink2,
       }}>
       {children}
@@ -362,7 +378,7 @@ function ProfileForm({ p, onChange }) {
 
 const inputStyle = {
   width: "100%", padding: "11px 13px", borderRadius: 11, border: "1px solid " + C.line,
-  fontSize: 15, fontFamily: FONT_UI, color: C.ink, outline: "none", background: "#fff",
+  fontSize: 15, fontFamily: FONT_UI, color: C.ink, outline: "none", background: C.card,
 };
 function Field({ label, children }) {
   return (
@@ -398,54 +414,66 @@ function FoodTable({ foods, totals, goals, onHalve, onRemove }) {
     <div style={{ overflowX: "auto", border: "1px solid " + C.line, borderRadius: 14, WebkitOverflowScrolling: "touch" }}>
       <table style={{ borderCollapse: "collapse", minWidth: 640, width: "100%" }}>
         <thead>
-          <tr style={{ borderBottom: "1px solid " + C.line, background: "#FAF8F2" }}>
-            <th style={{ ...head, ...stick, textAlign: "left", background: "#FAF8F2" }}>Food</th>
-            {TABLE_COLS.map((c) => <th key={c.k} style={head}>{c.label}</th>)}
+          <tr style={{ borderBottom: "1px solid " + C.line, background: C.tableHead }}>
+            <th style={{ ...head, ...stick, textAlign: "left", background: C.tableHead }}>Food</th>
+            {TABLE_COLS.map((c) => {
+              const meta = NUTRIENTS.find((n) => n.k === c.k);
+              return (
+                <th key={c.k} style={head}>
+                  <div>{c.label}</div>
+                  <div style={{ fontSize: 9.5, fontWeight: 400, textTransform: "none", letterSpacing: 0, color: C.muted, opacity: 0.85 }}>{meta.unit}</div>
+                </th>
+              );
+            })}
             <th style={{ ...head, textAlign: "left" }}>Notable</th>
             <th style={head}></th>
           </tr>
         </thead>
         <tbody>
-          {foods.map((f) => (
-            <tr key={f.id} style={{ borderBottom: "1px solid " + C.line }}>
-              <td style={{ padding: "9px 10px", ...stick, textAlign: "left", maxWidth: 200 }}>
-                <div style={{ fontWeight: 600, color: C.ink, fontSize: 13.5, fontFamily: FONT_UI }}>{f.name}</div>
-                <div style={{ color: C.muted, fontSize: 11.5, fontFamily: FONT_UI }}>
-                  {f.portion}{f.assumed && <span style={{ color: C.amber }}> · est.</span>}
-                </div>
-              </td>
-              {TABLE_COLS.map((c) => {
-                const meta = NUTRIENTS.find((n) => n.k === c.k);
-                return <td key={c.k} style={{ ...cell, color: C.ink2 }}>{fmt(f[c.k], meta.dec)}</td>;
-              })}
-              <td style={{ padding: "9px 10px", textAlign: "left" }}>
-                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                  {otherTags(f).map((t) => (
-                    <span key={t} style={{ fontSize: 10.5, fontFamily: FONT_UI, color: C.ink2,
-                      background: C.greenSoft, borderRadius: 999, padding: "2px 7px", whiteSpace: "nowrap" }}>{t}</span>
-                  ))}
-                </div>
-              </td>
-              <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
-                <button onClick={() => onHalve(f.id)} title="Halve this portion" className="nc-mini"
-                  style={{ color: C.ink2 }}>&frac12;</button>
-                <button onClick={() => onRemove(f.id)} title="Remove" className="nc-mini" style={{ color: C.clay }}>
-                  <Trash2 size={13} />
-                </button>
-              </td>
-            </tr>
-          ))}
-          {/* totals */}
-          <tr style={{ borderTop: "2px solid " + C.ink, background: "#FAF8F2" }}>
-            <td style={{ padding: "9px 10px", ...stick, background: "#FAF8F2", fontWeight: 700, color: C.ink, fontFamily: FONT_UI, fontSize: 13 }}>Daily total</td>
+          {foods.map((f) => {
+            const rowBg = f.assumed ? C.amberSoft : "transparent";
+            return (
+              <tr key={f.id} style={{ borderBottom: "1px solid " + C.line, background: rowBg }}>
+                <td style={{ padding: "9px 10px", ...stick, background: f.assumed ? C.amberSoft : C.card, textAlign: "left", maxWidth: 200 }}>
+                  <div style={{ fontWeight: 600, color: C.ink, fontSize: 13.5, fontFamily: FONT_UI }}>{f.name}</div>
+                  <div style={{ color: C.muted, fontSize: 11.5, fontFamily: FONT_UI }}>
+                    {f.portion}{f.assumed && <span style={{ color: C.amber, fontWeight: 600 }}> · est.</span>}
+                  </div>
+                </td>
+                {TABLE_COLS.map((c) => {
+                  const meta = NUTRIENTS.find((n) => n.k === c.k);
+                  return <td key={c.k} style={{ ...cell, color: C.ink2 }}>{fmt(f[c.k], meta.dec)}</td>;
+                })}
+                <td style={{ padding: "9px 10px", textAlign: "left" }}>
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                    {otherTags(f).map((t) => (
+                      <span key={t} style={{ fontSize: 10.5, fontFamily: FONT_UI, color: C.ink2,
+                        background: C.greenSoft, borderRadius: 999, padding: "2px 7px", whiteSpace: "nowrap" }}>{t}</span>
+                    ))}
+                  </div>
+                </td>
+                <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
+                  <button onClick={() => onHalve(f.id)} title="Halve this portion" className="nc-mini"
+                    style={{ color: C.ink2 }}>&frac12;</button>
+                  <button onClick={() => onRemove(f.id)} title="Remove" className="nc-mini" style={{ color: C.clay }}>
+                    <Trash2 size={13} />
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+          {/* totals — colored per nutrient against today's goal, same scale as the chart */}
+          <tr style={{ borderTop: "2px solid " + C.ink, background: C.tableHead }}>
+            <td style={{ padding: "9px 10px", ...stick, background: C.tableHead, fontWeight: 700, color: C.ink, fontFamily: FONT_UI, fontSize: 13 }}>Daily total</td>
             {TABLE_COLS.map((c) => {
               const meta = NUTRIENTS.find((n) => n.k === c.k);
-              return <td key={c.k} style={{ ...cell, fontWeight: 700, color: C.ink }}>{fmt(totals[c.k], meta.dec)}</td>;
+              const st = statusOf(totals[c.k], goals[c.k], meta.limit);
+              return <td key={c.k} style={{ ...cell, fontWeight: 700, color: STATUS[st].color }}>{fmt(totals[c.k], meta.dec)}</td>;
             })}
             <td /><td />
           </tr>
-          <tr style={{ background: "#FAF8F2" }}>
-            <td style={{ padding: "7px 10px", ...stick, background: "#FAF8F2", color: C.muted, fontFamily: FONT_UI, fontSize: 12 }}>Your goal</td>
+          <tr style={{ background: C.tableHead }}>
+            <td style={{ padding: "7px 10px", ...stick, background: C.tableHead, color: C.muted, fontFamily: FONT_UI, fontSize: 12 }}>Your goal</td>
             {TABLE_COLS.map((c) => {
               const meta = NUTRIENTS.find((n) => n.k === c.k);
               return <td key={c.k} style={{ ...cell, color: C.muted, fontSize: 11.5 }}>{fmt(goals[c.k], meta.dec)}</td>;
@@ -459,22 +487,64 @@ function FoodTable({ foods, totals, goals, onHalve, onRemove }) {
 }
 
 /* ---------------------------------------------------------------------------
-   Coach (recommendations + Q&A)
+   Coach (recommendations + Q&A) — structured, bulleted output via tool-calling.
 --------------------------------------------------------------------------- */
+const COACH_TOOL = {
+  name: "coach_feedback",
+  description: "Give the user structured, bulleted nutrition feedback.",
+  input_schema: {
+    type: "object",
+    properties: {
+      summary: { type: "string", description: "One short conversational lead-in sentence. Empty string if not needed." },
+      points: {
+        type: "array",
+        description: "2-4 concise bullet points.",
+        items: {
+          type: "object",
+          properties: {
+            status: { type: "string", enum: ["good", "watch", "gap", "tip"],
+              description: "good=doing well; watch=borderline/near goal; gap=a shortfall; tip=a specific food or action suggestion." },
+            text: { type: "string", description: "One concise line, plain text, no markdown. Reference actual logged foods. For 'tip' points suggesting a food, include nutrient deltas in parentheses, e.g. '(+12g fiber, +40mg vitamin C)'." },
+          },
+          required: ["status", "text"],
+        },
+      },
+    },
+    required: ["points"],
+  },
+};
+
+const INTERP_SYS =
+  "You are a warm nutrition coach giving quick feedback on the user's day so far. Call the coach_feedback tool. " +
+  "summary: one short sentence or empty string. points: 2-4 items — 1-2 'good' points naming nutrients they're " +
+  "hitting well and which logged foods delivered them, then 1-2 'gap' points naming what's short, and one 'tip' " +
+  "point suggesting a specific food to close the biggest gap. Reference their actual foods. No medical claims.";
+
 const COACH_SYS =
-  "You are a warm, concise nutrition coach in the style of a registered dietitian. You are given the user's real logged " +
-  "foods for today, their targets, and their remaining gaps. Answer their question by referencing THEIR actual foods and " +
-  "gaps — never generic advice. Suggest specific foods or simple meals with approximate nutrient additions in parentheses, " +
-  "e.g. '(+12g fiber, +40mg vitamin C)'. Give at most 3 options. Respect their dietary pattern and allergies. Keep it to a " +
-  "few short sentences or tight lines. Plain text only — no markdown headings, no bullets with symbols. No medical claims.";
+  "You are a warm, concise nutrition coach in the style of a registered dietitian, answering the user's question " +
+  "about their real logged foods and remaining nutrient gaps today. Call the coach_feedback tool. summary: a direct " +
+  "one-sentence answer. points: 2-4 items, mostly status 'tip' with specific foods or simple meals (include nutrient " +
+  "deltas in parentheses, e.g. '(+12g fiber, +40mg vitamin C)'); use 'good'/'watch'/'gap' only to explain context. " +
+  "At most 3 'tip' suggestions. Respect their dietary pattern and allergies. Reference actual foods and gaps — never " +
+  "generic advice. No medical claims.";
+
+const REPORT_TOOL = {
+  name: "daily_report",
+  description: "Give the user a short end-of-day nutrition report in three labeled sections.",
+  input_schema: {
+    type: "object",
+    properties: {
+      strengths: { type: "array", items: { type: "string" }, description: "2-3 short items naming a nutrient they hit well and which logged food(s) delivered it." },
+      gaps: { type: "array", items: { type: "string" }, description: "2-3 short items naming a nutrient they fell short on." },
+      tomorrow: { type: "array", items: { type: "string" }, description: "1-2 short, concrete, easy suggestions naming specific foods." },
+    },
+    required: ["strengths", "gaps", "tomorrow"],
+  },
+};
 
 const SUMMARY_SYS =
-  "You are a warm nutrition coach writing a short end-of-day report. Use the user's real logged foods, targets and gaps. " +
-  "Write three tiny labeled sections exactly in this order and format, plain text only:\n" +
-  "Strengths: one line naming the 2-3 nutrients they hit well and which foods delivered them.\n" +
-  "Gaps: one line naming the 2-3 nutrients they fell short on.\n" +
-  "Tomorrow: one line with a concrete, easy focus (name specific foods). " +
-  "Reference their actual foods. No medical claims, no markdown symbols.";
+  "You are a warm nutrition coach writing a short end-of-day report. Call the daily_report tool using the user's " +
+  "real logged foods, targets and gaps. Reference their actual foods. Plain text only, no markdown. No medical claims.";
 
 function buildContext(goals, totals, foods, profile) {
   const gaps = {};
@@ -517,13 +587,17 @@ export default function App() {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [interpretation, setInterpretation] = useState("");
-  const [thread, setThread] = useState([]); // {role, text}
+  const [interpretation, setInterpretation] = useState(null); // {summary, points} | null
+  const [thread, setThread] = useState([]); // {role:'user', text} | {role:'coach', data:{summary, points}}
   const [coachBusy, setCoachBusy] = useState(false);
-  const [report, setReport] = useState("");
+  const [report, setReport] = useState(null); // {strengths, gaps, tomorrow} | null
   const [reportBusy, setReportBusy] = useState(false);
   const [water, setWater] = useState(0); // cups (240ml)
   const [listening, setListening] = useState(false);
+  const [dark, setDark] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+  );
   const recRef = useRef(null);
   const threadEndRef = useRef(null);
 
@@ -612,7 +686,7 @@ export default function App() {
       const next = [...foods, ...parsed];
       setFoods(next);
       setText("");
-      setReport("");
+      setReport(null);
       // fresh interpretation off the full day
       await runInterpretation(next);
     } catch (e) {
@@ -625,12 +699,8 @@ export default function App() {
       const t = Object.fromEntries(NUT_KEYS.map((k) => [k, 0]));
       list.forEach((f) => NUT_KEYS.forEach((k) => (t[k] += Number(f[k]) || 0)));
       const ctx = buildContext(goals, t, list, profile);
-      const sys =
-        "You are a warm nutrition coach. In 2-3 short sentences, interpret the user's day so far. Name their strongest " +
-        "nutrients and which logged foods delivered them, then their biggest 1-2 gaps and one specific food that would " +
-        "close them. Reference their actual foods. Plain text, no markdown, no medical claims.";
-      const out = await callClaude(sys, ctx);
-      setInterpretation(out);
+      const obj = await callClaudeTool(INTERP_SYS, ctx, COACH_TOOL);
+      setInterpretation(obj);
     } catch { /* interpretation is best-effort */ }
   }
 
@@ -640,10 +710,11 @@ export default function App() {
     setCoachBusy(true);
     try {
       const ctx = buildContext(goals, totals, foods, profile) + "\n\nUser question: " + q;
-      const out = await callClaude(COACH_SYS, ctx);
-      setThread((th) => [...th, { role: "coach", text: out }]);
+      const obj = await callClaudeTool(COACH_SYS, ctx, COACH_TOOL);
+      setThread((th) => [...th, { role: "coach", data: obj }]);
     } catch (e) {
-      setThread((th) => [...th, { role: "coach", text: e.message || "I couldn't reach the coach just now — try again." }]);
+      setThread((th) => [...th, { role: "coach",
+        data: { summary: e.message || "I couldn't reach the coach just now — try again.", points: [] } }]);
     } finally { setCoachBusy(false); }
   }
 
@@ -652,25 +723,26 @@ export default function App() {
     setReportBusy(true);
     try {
       const ctx = buildContext(goals, totals, foods, profile);
-      const out = await callClaude(SUMMARY_SYS, ctx);
-      setReport(out);
-    } catch (e) { setReport(e.message || "Couldn't build the report — try again."); }
-    finally { setReportBusy(false); }
+      const obj = await callClaudeTool(SUMMARY_SYS, ctx, REPORT_TOOL);
+      setReport(obj);
+    } catch (e) {
+      setReport({ strengths: [], gaps: [], tomorrow: [e.message || "Couldn't build the report — try again."] });
+    } finally { setReportBusy(false); }
   }
 
   function halve(id) {
     setFoods((fs) => fs.map((f) => (f.id === id ? { ...f, portion: (f.portion || "") + " (\u00BD)", ...Object.fromEntries(NUT_KEYS.map((k) => [k, f[k] / 2])) } : f)));
-    setReport("");
+    setReport(null);
   }
-  function remove(id) { setFoods((fs) => fs.filter((f) => f.id !== id)); setReport(""); }
-  function resetDay() { setFoods([]); setInterpretation(""); setThread([]); setReport(""); setWater(0); }
+  function remove(id) { setFoods((fs) => fs.filter((f) => f.id !== id)); setReport(null); }
+  function resetDay() { setFoods([]); setInterpretation(null); setThread([]); setReport(null); setWater(0); }
 
   const macros = NUTRIENTS.filter((n) => n.group === "macro");
   const micros = NUTRIENTS.filter((n) => n.group === "micro");
   const empty = foods.length === 0;
 
   return (
-    <div style={{ background: C.paper, minHeight: "100vh", fontFamily: FONT_UI, color: C.ink }}>
+    <div data-theme={dark ? "dark" : "light"} style={{ background: C.paper, minHeight: "100vh", fontFamily: FONT_UI, color: C.ink }}>
       <StyleTag />
       <div style={{ maxWidth: 620, margin: "0 auto", padding: "22px 16px 80px" }}>
 
@@ -679,23 +751,36 @@ export default function App() {
           <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
             <Salad size={20} color={C.beet} />
             <span style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 600, color: C.ink }}>Plate&nbsp;Notes</span>
+            {!empty && (
+              <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.muted, background: C.tableHead,
+                border: "1px solid " + C.line, borderRadius: 999, padding: "3px 9px" }}>
+                {foods.length} logged
+              </span>
+            )}
           </div>
-          <button onClick={resetDay} className="nc-ghost" title="Start a new day">
-            <RotateCcw size={13} /> New day
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setDark((d) => !d)} className="nc-ghost" title={dark ? "Switch to light mode" : "Switch to dark mode"}>
+              {dark ? <Sun size={13} /> : <Moon size={13} />} {dark ? "Light" : "Dark"}
+            </button>
+            <button onClick={resetDay} className="nc-ghost" title="Start a new day">
+              <RotateCcw size={13} /> New day
+            </button>
+          </div>
         </div>
 
         {/* input card — the star */}
-        <div style={{ background: C.card, border: "1px solid " + C.line, borderRadius: 18, padding: 16, boxShadow: "0 1px 0 rgba(22,58,46,0.03)" }}>
+        <div style={{ background: C.card, border: "1px solid " + C.line, borderRadius: 18, padding: 16, boxShadow: "var(--shadow-card)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <span style={{ fontFamily: FONT_MONO, fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: C.muted }}>
-              Tell me what you ate
+              {empty ? "Tell me what you ate" : "Add more to today"}
             </span>
           </div>
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder={"Just talk it through — e.g. \u201cEgg bagel with feta, mayo and sriracha, a latte with whole milk, then a salmon snack pack and a bag of chips.\u201d"}
+            placeholder={empty
+              ? "Just talk it through — e.g. \u201cEgg bagel with feta, mayo and sriracha, a latte with whole milk, then a salmon snack pack and a bag of chips.\u201d"
+              : "Forgot something? Add it here — e.g. \u201coh, and a handful of almonds.\u201d"}
             rows={4}
             style={{ width: "100%", border: "none", outline: "none", resize: "vertical", fontSize: 15.5,
               lineHeight: 1.5, fontFamily: FONT_UI, color: C.ink, background: "transparent" }}
@@ -703,15 +788,15 @@ export default function App() {
           <div className="nc-between" style={{ marginTop: 8 }}>
             <button onClick={toggleMic} disabled={!speechOK} className="nc-mic"
               title={speechOK ? "Speak your foods" : "Voice input isn't available here"}
-              style={{ color: listening ? "#fff" : speechOK ? C.ink2 : "#B9C2BC",
-                background: listening ? C.beet : "#fff", borderColor: listening ? C.beet : C.line }}>
+              style={{ color: listening ? "#fff" : speechOK ? C.ink2 : C.micDisabled,
+                background: listening ? C.beet : C.card, borderColor: listening ? C.beet : C.line }}>
               {listening ? <MicOff size={16} /> : <Mic size={16} />}
               {listening ? "Listening\u2026" : "Speak"}
             </button>
             <button onClick={analyze} disabled={busy || !text.trim()} className="nc-cta-sm"
-              style={{ background: busy || !text.trim() ? "#D9BEC7" : C.beet }}>
+              style={{ background: busy || !text.trim() ? C.disabled : C.beet }}>
               {busy ? <Loader2 size={16} className="nc-spin" /> : <Sparkles size={16} />}
-              {busy ? "Estimating\u2026" : "Estimate nutrients"}
+              {busy ? "Estimating\u2026" : empty ? "Estimate nutrients" : "Add to today's log"}
             </button>
           </div>
           {err && (
@@ -749,12 +834,20 @@ export default function App() {
           </div>
         ) : (
           <>
-            {/* coach interpretation */}
+            {/* coach interpretation — structured bullets */}
             {interpretation && (
               <CoachCard>
-                <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.55, color: C.ink }}>{interpretation}</p>
+                <CoachPoints summary={interpretation.summary} points={interpretation.points} />
               </CoachCard>
             )}
+
+            {/* food table — right below the coach, per how you actually use this */}
+            <SectionTitle>What you ate</SectionTitle>
+            <FoodTable foods={foods} totals={totals} goals={goals} onHalve={halve} onRemove={remove} />
+            <p style={{ color: C.muted, fontSize: 12, marginTop: 8 }}>
+              Tap &frac12; to halve a portion or the trash icon to remove it. Rows tinted amber were estimated —
+              tell me the real portion above and I&apos;ll fold it in.
+            </p>
 
             {/* today's chart — signature */}
             <SectionTitle>Today&apos;s chart</SectionTitle>
@@ -779,13 +872,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* food table */}
-            <SectionTitle>What you ate</SectionTitle>
-            <FoodTable foods={foods} totals={totals} goals={goals} onHalve={halve} onRemove={remove} />
-            <p style={{ color: C.muted, fontSize: 12, marginTop: 8 }}>
-              Tap &frac12; to halve a portion or the trash icon to remove it. Estimates flagged &ldquo;est.&rdquo; assumed a typical serving.
-            </p>
-
             {/* coach Q&A */}
             <SectionTitle>Ask your coach</SectionTitle>
             <div style={{ background: C.card, border: "1px solid " + C.line, borderRadius: 18, padding: 14 }}>
@@ -799,12 +885,15 @@ export default function App() {
                 <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", marginBottom: 10 }}>
                   <div style={{
                     maxWidth: "86%", padding: "10px 13px", borderRadius: 14, fontSize: 14, lineHeight: 1.5,
-                    whiteSpace: "pre-wrap",
-                    background: m.role === "user" ? C.ink : C.beetSoft,
+                    background: m.role === "user" ? C.strong : C.beetSoft,
                     color: m.role === "user" ? "#fff" : C.ink,
                     borderTopRightRadius: m.role === "user" ? 4 : 14,
                     borderTopLeftRadius: m.role === "user" ? 14 : 4,
-                  }}>{m.text}</div>
+                  }}>
+                    {m.role === "user"
+                      ? <span style={{ whiteSpace: "pre-wrap" }}>{m.text}</span>
+                      : <CoachPoints summary={m.data.summary} points={m.data.points} compact />}
+                  </div>
                 </div>
               ))}
               {coachBusy && (
@@ -817,12 +906,10 @@ export default function App() {
               <CoachInput onSend={askCoach} busy={coachBusy} />
             </div>
 
-            {/* daily report */}
+            {/* daily report — structured, labeled sections */}
             <SectionTitle>End-of-day report</SectionTitle>
             {report ? (
-              <CoachCard>
-                <div style={{ whiteSpace: "pre-wrap", fontSize: 14.5, lineHeight: 1.6, color: C.ink }}>{report}</div>
-              </CoachCard>
+              <ReportCard data={report} />
             ) : (
               <button onClick={makeReport} disabled={reportBusy} className="nc-report"
                 style={{ borderColor: C.line }}>
@@ -857,22 +944,83 @@ function CoachInput({ onSend, busy }) {
         style={{ ...inputStyle, flex: 1 }}
       />
       <button onClick={send} disabled={busy || !v.trim()} className="nc-send"
-        style={{ background: busy || !v.trim() ? "#D9BEC7" : C.beet }}>
+        style={{ background: busy || !v.trim() ? C.disabled : C.beet }}>
         <Send size={16} />
       </button>
     </div>
   );
 }
 
-function CoachCard({ children }) {
+function CoachCard({ children, label = "Coach" }) {
   return (
-    <div style={{ background: C.beetSoft, border: "1px solid #F0D9E0", borderRadius: 18, padding: 16, marginTop: 18 }}>
+    <div style={{ background: C.beetSoft, border: "1px solid " + C.beetSoftBorder, borderRadius: 18, padding: 16, marginTop: 18 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
         <Sparkles size={14} color={C.beet} />
-        <span style={{ fontFamily: FONT_MONO, fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: C.beet }}>Coach</span>
+        <span style={{ fontFamily: FONT_MONO, fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: C.beet }}>{label}</span>
       </div>
       {children}
     </div>
+  );
+}
+
+/* Structured, bulleted coach feedback — checkmarks for wins, warnings for gaps,
+   sparkles for suggestions. Used for the interpretation card and Q&A replies. */
+function CoachPoints({ summary, points, compact }) {
+  const list = Array.isArray(points) ? points : [];
+  return (
+    <div>
+      {summary && (
+        <p style={{ margin: compact ? "0 0 8px" : "0 0 10px", fontSize: compact ? 14 : 14.5, lineHeight: 1.5, color: C.ink }}>{summary}</p>
+      )}
+      {list.length > 0 && (
+        <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 7 }}>
+          {list.map((pt, i) => {
+            const meta = COACH_META[pt.status] || COACH_META.tip;
+            const Icon = meta.Icon;
+            return (
+              <li key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: compact ? 13.5 : 14, lineHeight: 1.5, color: C.ink }}>
+                <Icon size={15} color={meta.color} style={{ marginTop: 2, flexShrink: 0 }} />
+                <span>{pt.text}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/* End-of-day report — three labeled, icon-coded sections. */
+function ReportCard({ data }) {
+  const groups = [
+    { title: "Strengths", status: "good", items: data.strengths || [] },
+    { title: "Gaps", status: "gap", items: data.gaps || [] },
+    { title: "Tomorrow's focus", status: "tip", items: data.tomorrow || [] },
+  ].filter((g) => g.items.length > 0);
+  return (
+    <CoachCard label="Today's report">
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {groups.map((g) => {
+          const meta = COACH_META[g.status];
+          const Icon = meta.Icon;
+          return (
+            <div key={g.title}>
+              <div style={{ fontFamily: FONT_MONO, fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", color: C.muted, marginBottom: 6 }}>
+                {g.title}
+              </div>
+              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+                {g.items.map((text, i) => (
+                  <li key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 14, lineHeight: 1.5, color: C.ink }}>
+                    <Icon size={15} color={meta.color} style={{ marginTop: 2, flexShrink: 0 }} />
+                    <span>{text}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+    </CoachCard>
   );
 }
 function SectionTitle({ children }) {
@@ -886,25 +1034,52 @@ function StyleTag() {
   return (
     <style>{`
       @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=Space+Mono&display=swap');
+
+      :root, [data-theme="light"] {
+        --ink: #163A2E; --ink2: #2C4A3E; --strong: #163A2E;
+        --paper: #FBFAF6; --card: #FFFFFF; --line: #E8E5DC; --muted: #5B6B63;
+        --beet: #B23A5B; --beet-soft: #F7E9EE; --beet-soft-border: #F0D9E0;
+        --green: #2E7D5B; --green-soft: #E6F1EB; --green-soft-border: #D7E6DD;
+        --amber: #C08A1E; --amber-soft: #F7EED6;
+        --clay: #C0492F; --clay-soft: #F7E3DD;
+        --bar-track: #EFEDE5; --table-head: #FAF8F2;
+        --disabled: #D9BEC7; --mic-disabled: #B9C2BC;
+        --shadow-card: 0 1px 0 rgba(22,58,46,0.03);
+        color-scheme: light;
+      }
+      [data-theme="dark"] {
+        --ink: #F1EFE6; --ink2: #C4D0C9; --strong: #2C4A3E;
+        --paper: #0E1B16; --card: #16261F; --line: #293A31; --muted: #8CA096;
+        --beet: #DD7C97; --beet-soft: #2B1B21; --beet-soft-border: #452530;
+        --green: #79C79E; --green-soft: #17291F; --green-soft-border: #274637;
+        --amber: #E3B75A; --amber-soft: #2E2717;
+        --clay: #E3896E; --clay-soft: #33201A;
+        --bar-track: #22322A; --table-head: #1C2C24;
+        --disabled: #3E2E36; --mic-disabled: #445048;
+        --shadow-card: 0 1px 0 rgba(0,0,0,0.3);
+        color-scheme: dark;
+      }
+      html, body, #root { background: var(--paper); }
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
       body { margin: 0; }
       .nc-between { display: flex; align-items: center; justify-content: space-between; }
       .nc-wrap { display: flex; flex-wrap: wrap; gap: 8px; }
       .nc-pill { padding: 8px 14px; border-radius: 999px; font-size: 13.5px; font-weight: 500; cursor: pointer; font-family: ${FONT_UI}; transition: all .15s; }
-      .nc-row-pick { text-align: left; padding: 11px 13px; border-radius: 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; font-family: ${FONT_UI}; transition: all .15s; }
       .nc-cta { width: 100%; padding: 14px; border: none; border-radius: 13px; color: #fff; font-size: 15.5px; font-weight: 600; font-family: ${FONT_UI}; display: flex; align-items: center; justify-content: center; gap: 6px; transition: background .15s; }
       .nc-cta-sm { padding: 10px 16px; border: none; border-radius: 11px; color: #fff; font-size: 14px; font-weight: 600; font-family: ${FONT_UI}; display: flex; align-items: center; gap: 7px; cursor: pointer; transition: background .15s; }
       .nc-cta-sm:disabled, .nc-cta:disabled, .nc-send:disabled { cursor: default; }
       .nc-mic { display: flex; align-items: center; gap: 7px; padding: 9px 15px; border-radius: 11px; border: 1px solid ${C.line}; font-size: 14px; font-weight: 600; font-family: ${FONT_UI}; cursor: pointer; transition: all .15s; }
       .nc-mic:disabled { cursor: default; }
-      .nc-ghost { display: flex; align-items: center; gap: 5px; background: none; border: 1px solid ${C.line}; color: ${C.muted}; padding: 6px 11px; border-radius: 999px; font-size: 12.5px; font-family: ${FONT_UI}; cursor: pointer; }
-      .nc-mini { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 1px solid ${C.line}; background: #fff; border-radius: 8px; cursor: pointer; font-family: ${FONT_UI}; font-size: 14px; margin-left: 5px; }
-      .nc-chip { background: ${C.greenSoft}; border: 1px solid #D7E6DD; color: ${C.ink}; padding: 8px 12px; border-radius: 999px; font-size: 12.5px; font-family: ${FONT_UI}; cursor: pointer; transition: all .15s; }
+      .nc-ghost { display: flex; align-items: center; gap: 5px; background: none; border: 1px solid ${C.line}; color: ${C.muted}; padding: 6px 11px; border-radius: 999px; font-size: 12.5px; font-family: ${FONT_UI}; cursor: pointer; transition: all .15s; }
+      .nc-ghost:hover { border-color: ${C.beet}; color: ${C.beet}; }
+      .nc-mini { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 1px solid ${C.line}; background: ${C.card}; border-radius: 8px; cursor: pointer; font-family: ${FONT_UI}; font-size: 14px; margin-left: 5px; color: ${C.ink2}; }
+      .nc-chip { background: ${C.greenSoft}; border: 1px solid ${C.greenSoftBorder}; color: ${C.ink}; padding: 8px 12px; border-radius: 999px; font-size: 12.5px; font-family: ${FONT_UI}; cursor: pointer; transition: all .15s; }
       .nc-chip:disabled { opacity: .5; cursor: default; }
       .nc-send { border: none; border-radius: 11px; color: #fff; width: 46px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
-      .nc-report { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px; background: #fff; border: 1px dashed ${C.line}; border-radius: 14px; font-size: 14.5px; font-weight: 600; color: ${C.ink}; font-family: ${FONT_UI}; cursor: pointer; }
+      .nc-report { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px; background: ${C.card}; border: 1px dashed ${C.line}; border-radius: 14px; font-size: 14.5px; font-weight: 600; color: ${C.ink}; font-family: ${FONT_UI}; cursor: pointer; }
       .nc-disclosure { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; background: none; border: none; padding: 2px 0; cursor: pointer; font-family: ${FONT_UI}; text-align: left; }
-      input:focus, textarea:focus { border-color: ${C.ink} !important; }
+      input, textarea { color-scheme: inherit; }
+      input:focus, textarea:focus { border-color: ${C.beet} !important; }
       button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid ${C.beet}; outline-offset: 1px; }
       .nc-spin { animation: nc-rot 1s linear infinite; }
       @keyframes nc-rot { to { transform: rotate(360deg); } }

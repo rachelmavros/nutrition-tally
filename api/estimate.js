@@ -38,7 +38,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: "claude-sonnet-5", // swap to "claude-haiku-4-5" for lower cost
-        max_tokens: 1000,
+        max_tokens: 2000,
         system: system || "",
         messages: [{ role: "user", content: user }],
       }),

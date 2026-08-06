@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   Mic, MicOff, Sparkles, Trash2, Send, Salad, Droplet, Plus, Minus,
   ChevronDown, Loader2, AlertTriangle, AlertCircle, CheckCircle2, RotateCcw, Utensils,
-  SlidersHorizontal, Sun, Moon
+  SlidersHorizontal, Sun, Moon, Zap, Check
 } from "lucide-react";
 
 /* ---------------------------------------------------------------------------
@@ -139,12 +139,20 @@ const STATUS = {
   low: { color: C.clay, soft: C.claySoft, label: "Needs work" },
 };
 
-/* status meta for the coach's bulleted feedback (good/watch/gap/tip) */
+/* status meta for the coach's Q&A bulleted feedback (good/watch/gap/tip) */
 const COACH_META = {
   good: { Icon: CheckCircle2, color: C.green },
   watch: { Icon: AlertCircle, color: C.amber },
   gap: { Icon: AlertTriangle, color: C.clay },
   tip: { Icon: Sparkles, color: C.beet },
+};
+
+/* the four-section feedback layout: Strengths / Opportunities / Recommendations / Easy wins */
+const REPORT_META = {
+  strengths: { title: "Strengths", Icon: CheckCircle2, color: C.green },
+  opportunities: { title: "Opportunities", Icon: AlertTriangle, color: C.amber },
+  recommendations: { title: "Recommendations", Icon: Sparkles, color: C.beet },
+  easyWins: { title: "Easy wins", Icon: Zap, color: C.green },
 };
 
 /* ---------------------------------------------------------------------------
@@ -306,12 +314,13 @@ function Pill({ active, children, onClick }) {
   );
 }
 
-function ProfileForm({ p, onChange }) {
-  const set = (k, v) => onChange({ [k]: v });
+function ProfileForm({ initial, onSave }) {
+  const [p, setP] = useState(initial);
+  const set = (k, v) => setP((s) => ({ ...s, [k]: v }));
   return (
     <div>
       <p style={{ color: C.muted, fontSize: 13, margin: "2px 0 16px", lineHeight: 1.5 }}>
-        Your targets start from general adult values. Adjust these to fit you — the chart and coach update live.
+        Your targets start from general adult values. Adjust these to fit you, then save to update your chart and coach.
       </p>
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -372,6 +381,10 @@ function ProfileForm({ p, onChange }) {
         <input value={p.allergies} onChange={(e) => set("allergies", e.target.value)}
           placeholder="e.g. no dairy, dislikes cilantro" style={inputStyle} />
       </Field>
+
+      <button onClick={() => onSave(p)} className="nc-cta" style={{ background: C.beet, marginTop: 4 }}>
+        Save settings
+      </button>
     </div>
   );
 }
@@ -396,14 +409,10 @@ const TABLE_COLS = [
   { k: "cal", label: "Cal" }, { k: "protein", label: "Protein" }, { k: "fiber", label: "Fiber" },
   { k: "iron", label: "Iron" }, { k: "vitc", label: "Vit C" }, { k: "calcium", label: "Calcium" },
 ];
-function otherTags(f) {
-  const tags = [];
-  if (f.omega3 >= 0.3) tags.push("Omega-3");
-  if (f.b12 >= 0.6) tags.push("B12");
-  if (f.potassium >= 300) tags.push("Potassium");
-  if (f.magnesium >= 60) tags.push("Magnesium");
-  if (f.sodium >= 500) tags.push("High sodium");
-  return tags.slice(0, 3);
+
+/* every number in the table carries its unit — no bare digits */
+function withUnit(value, meta) {
+  return fmt(value, meta.dec) + (meta.unit ? "\u2009" + meta.unit : "");
 }
 
 function FoodTable({ foods, totals, goals, onHalve, onRemove }) {
@@ -412,73 +421,66 @@ function FoodTable({ foods, totals, goals, onHalve, onRemove }) {
   const stick = { position: "sticky", left: 0, background: C.card, zIndex: 1 };
   return (
     <div style={{ overflowX: "auto", border: "1px solid " + C.line, borderRadius: 14, WebkitOverflowScrolling: "touch" }}>
-      <table style={{ borderCollapse: "collapse", minWidth: 640, width: "100%" }}>
+      <table style={{ borderCollapse: "collapse", minWidth: 600, width: "100%" }}>
         <thead>
           <tr style={{ borderBottom: "1px solid " + C.line, background: C.tableHead }}>
             <th style={{ ...head, ...stick, textAlign: "left", background: C.tableHead }}>Food</th>
-            {TABLE_COLS.map((c) => {
-              const meta = NUTRIENTS.find((n) => n.k === c.k);
-              return (
-                <th key={c.k} style={head}>
-                  <div>{c.label}</div>
-                  <div style={{ fontSize: 9.5, fontWeight: 400, textTransform: "none", letterSpacing: 0, color: C.muted, opacity: 0.85 }}>{meta.unit}</div>
-                </th>
-              );
-            })}
-            <th style={{ ...head, textAlign: "left" }}>Notable</th>
+            {TABLE_COLS.map((c) => <th key={c.k} style={head}>{c.label}</th>)}
             <th style={head}></th>
           </tr>
         </thead>
         <tbody>
-          {foods.map((f) => {
-            const rowBg = f.assumed ? C.amberSoft : "transparent";
-            return (
-              <tr key={f.id} style={{ borderBottom: "1px solid " + C.line, background: rowBg }}>
-                <td style={{ padding: "9px 10px", ...stick, background: f.assumed ? C.amberSoft : C.card, textAlign: "left", maxWidth: 200 }}>
-                  <div style={{ fontWeight: 600, color: C.ink, fontSize: 13.5, fontFamily: FONT_UI }}>{f.name}</div>
-                  <div style={{ color: C.muted, fontSize: 11.5, fontFamily: FONT_UI }}>
-                    {f.portion}{f.assumed && <span style={{ color: C.amber, fontWeight: 600 }}> · est.</span>}
-                  </div>
-                </td>
-                {TABLE_COLS.map((c) => {
-                  const meta = NUTRIENTS.find((n) => n.k === c.k);
-                  return <td key={c.k} style={{ ...cell, color: C.ink2 }}>{fmt(f[c.k], meta.dec)}</td>;
-                })}
-                <td style={{ padding: "9px 10px", textAlign: "left" }}>
-                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                    {otherTags(f).map((t) => (
-                      <span key={t} style={{ fontSize: 10.5, fontFamily: FONT_UI, color: C.ink2,
-                        background: C.greenSoft, borderRadius: 999, padding: "2px 7px", whiteSpace: "nowrap" }}>{t}</span>
-                    ))}
-                  </div>
-                </td>
-                <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
-                  <button onClick={() => onHalve(f.id)} title="Halve this portion" className="nc-mini"
-                    style={{ color: C.ink2 }}>&frac12;</button>
-                  <button onClick={() => onRemove(f.id)} title="Remove" className="nc-mini" style={{ color: C.clay }}>
-                    <Trash2 size={13} />
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
-          {/* totals — colored per nutrient against today's goal, same scale as the chart */}
-          <tr style={{ borderTop: "2px solid " + C.ink, background: C.tableHead }}>
-            <td style={{ padding: "9px 10px", ...stick, background: C.tableHead, fontWeight: 700, color: C.ink, fontFamily: FONT_UI, fontSize: 13 }}>Daily total</td>
+          {foods.map((f) => (
+            <tr key={f.id} style={{ borderBottom: "1px solid " + C.line }}>
+              <td style={{ padding: "9px 10px", ...stick, textAlign: "left", maxWidth: 200 }}>
+                <div style={{ fontWeight: 600, color: C.ink, fontSize: 13.5, fontFamily: FONT_UI }}>{f.name}</div>
+                <div style={{ color: C.muted, fontSize: 11.5, fontFamily: FONT_UI }}>
+                  {f.portion}{f.assumed && <span style={{ color: C.amber, fontWeight: 600 }}> · est.</span>}
+                </div>
+              </td>
+              {TABLE_COLS.map((c) => {
+                const meta = NUTRIENTS.find((n) => n.k === c.k);
+                return <td key={c.k} style={{ ...cell, color: C.ink2 }}>{withUnit(f[c.k], meta)}</td>;
+              })}
+              <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
+                <button onClick={() => onHalve(f.id)} title="Halve this portion" className="nc-mini"
+                  style={{ color: C.ink2 }}>&frac12;</button>
+                <button onClick={() => onRemove(f.id)} title="Remove" className="nc-mini" style={{ color: C.clay }}>
+                  <Trash2 size={13} />
+                </button>
+              </td>
+            </tr>
+          ))}
+
+          {/* daily total — the important row: bold, colored per nutrient, with % of goal */}
+          <tr style={{ borderTop: "3px solid " + C.beet, background: C.tableHead }}>
+            <td style={{ padding: "12px 10px", ...stick, background: C.tableHead, fontWeight: 800, color: C.ink, fontFamily: FONT_UI, fontSize: 14 }}>
+              Daily total
+            </td>
             {TABLE_COLS.map((c) => {
               const meta = NUTRIENTS.find((n) => n.k === c.k);
               const st = statusOf(totals[c.k], goals[c.k], meta.limit);
-              return <td key={c.k} style={{ ...cell, fontWeight: 700, color: STATUS[st].color }}>{fmt(totals[c.k], meta.dec)}</td>;
+              const pct = goals[c.k] > 0 ? Math.round((totals[c.k] / goals[c.k]) * 100) : 0;
+              return (
+                <td key={c.k} style={{ padding: "12px 10px", textAlign: "right" }}>
+                  <div style={{ fontFamily: FONT_MONO, fontWeight: 800, fontSize: 14, color: STATUS[st].color }}>
+                    {withUnit(totals[c.k], meta)}
+                  </div>
+                  <div style={{ fontFamily: FONT_MONO, fontWeight: 600, fontSize: 10.5, color: STATUS[st].color, opacity: 0.85 }}>
+                    {pct}% of goal
+                  </div>
+                </td>
+              );
             })}
-            <td /><td />
+            <td />
           </tr>
           <tr style={{ background: C.tableHead }}>
             <td style={{ padding: "7px 10px", ...stick, background: C.tableHead, color: C.muted, fontFamily: FONT_UI, fontSize: 12 }}>Your goal</td>
             {TABLE_COLS.map((c) => {
               const meta = NUTRIENTS.find((n) => n.k === c.k);
-              return <td key={c.k} style={{ ...cell, color: C.muted, fontSize: 11.5 }}>{fmt(goals[c.k], meta.dec)}</td>;
+              return <td key={c.k} style={{ ...cell, color: C.muted, fontSize: 11.5 }}>{withUnit(goals[c.k], meta)}</td>;
             })}
-            <td /><td />
+            <td />
           </tr>
         </tbody>
       </table>
@@ -489,6 +491,46 @@ function FoodTable({ foods, totals, goals, onHalve, onRemove }) {
 /* ---------------------------------------------------------------------------
    Coach (recommendations + Q&A) — structured, bulleted output via tool-calling.
 --------------------------------------------------------------------------- */
+const REPORT_TOOL = {
+  name: "nutrition_feedback",
+  description: "Give the user structured nutrition feedback in four labeled sections.",
+  input_schema: {
+    type: "object",
+    properties: {
+      strengths: {
+        type: "array", items: { type: "string" },
+        description: "Nutrients they're hitting well and which logged food(s) delivered them. Empty array if genuinely none yet.",
+      },
+      opportunities: {
+        type: "array", items: { type: "string" },
+        description: "Nutrients that are falling short of today's goal.",
+      },
+      recommendations: {
+        type: "array", items: { type: "string" },
+        description: "Specific foods or simple meals that would improve balance across the gaps, may combine multiple nutrients.",
+      },
+      easyWins: {
+        type: "array", items: { type: "string" },
+        description: "The single simplest additions — one food each — for the biggest gaps. Every item MUST state an approximate quantified nutrient contribution using the real numbers in 'stillNeeded', e.g. 'One orange adds about 70mg vitamin C, covering most of your remaining goal.' Never a vague suggestion without a number.",
+      },
+    },
+    required: ["strengths", "opportunities", "recommendations", "easyWins"],
+  },
+};
+
+const INTERP_SYS =
+  "You are a warm nutrition coach giving quick feedback on the user's day so far. Call the nutrition_feedback tool. " +
+  "Keep it brief: strengths 1-2 items, opportunities 1-2 items, recommendations 1-2 items, easyWins 1-2 items " +
+  "(each a single simple food with a quantified nutrient contribution computed from the 'stillNeeded' values given). " +
+  "Reference their actual logged foods. Arrays can be empty if there's genuinely nothing to say yet. No medical claims.";
+
+const SUMMARY_SYS =
+  "You are a warm nutrition coach writing a full end-of-day report. Call the nutrition_feedback tool using the " +
+  "user's real logged foods, targets and gaps. strengths 2-3 items, opportunities 2-3 items, recommendations 2-3 " +
+  "items, easyWins 2-3 items (each a single simple food with a quantified nutrient contribution computed from the " +
+  "'stillNeeded' values given, e.g. 'One orange adds about 70mg vitamin C.'). Reference actual foods. Plain text " +
+  "only, no markdown. No medical claims.";
+
 const COACH_TOOL = {
   name: "coach_feedback",
   description: "Give the user structured, bulleted nutrition feedback.",
@@ -514,12 +556,6 @@ const COACH_TOOL = {
   },
 };
 
-const INTERP_SYS =
-  "You are a warm nutrition coach giving quick feedback on the user's day so far. Call the coach_feedback tool. " +
-  "summary: one short sentence or empty string. points: 2-4 items — 1-2 'good' points naming nutrients they're " +
-  "hitting well and which logged foods delivered them, then 1-2 'gap' points naming what's short, and one 'tip' " +
-  "point suggesting a specific food to close the biggest gap. Reference their actual foods. No medical claims.";
-
 const COACH_SYS =
   "You are a warm, concise nutrition coach in the style of a registered dietitian, answering the user's question " +
   "about their real logged foods and remaining nutrient gaps today. Call the coach_feedback tool. summary: a direct " +
@@ -527,24 +563,6 @@ const COACH_SYS =
   "deltas in parentheses, e.g. '(+12g fiber, +40mg vitamin C)'); use 'good'/'watch'/'gap' only to explain context. " +
   "At most 3 'tip' suggestions. Respect their dietary pattern and allergies. Reference actual foods and gaps — never " +
   "generic advice. No medical claims.";
-
-const REPORT_TOOL = {
-  name: "daily_report",
-  description: "Give the user a short end-of-day nutrition report in three labeled sections.",
-  input_schema: {
-    type: "object",
-    properties: {
-      strengths: { type: "array", items: { type: "string" }, description: "2-3 short items naming a nutrient they hit well and which logged food(s) delivered it." },
-      gaps: { type: "array", items: { type: "string" }, description: "2-3 short items naming a nutrient they fell short on." },
-      tomorrow: { type: "array", items: { type: "string" }, description: "1-2 short, concrete, easy suggestions naming specific foods." },
-    },
-    required: ["strengths", "gaps", "tomorrow"],
-  },
-};
-
-const SUMMARY_SYS =
-  "You are a warm nutrition coach writing a short end-of-day report. Call the daily_report tool using the user's " +
-  "real logged foods, targets and gaps. Reference their actual foods. Plain text only, no markdown. No medical claims.";
 
 function buildContext(goals, totals, foods, profile) {
   const gaps = {};
@@ -581,7 +599,6 @@ const DEFAULT_PROFILE = {
 
 export default function App() {
   const [profile, setProfile] = useState(DEFAULT_PROFILE);
-  const [goals, setGoals] = useState(() => computeGoals(DEFAULT_PROFILE));
   const [showSettings, setShowSettings] = useState(false);
   const [foods, setFoods] = useState([]);
   const [text, setText] = useState("");
@@ -601,9 +618,15 @@ export default function App() {
   const recRef = useRef(null);
   const threadEndRef = useRef(null);
 
-  // recompute targets live whenever the profile changes
-  useEffect(() => { setGoals(computeGoals(profile)); }, [profile]);
-  const updateProfile = (patch) => setProfile((prev) => ({ ...prev, ...patch }));
+  // goals only recompute when profile is explicitly saved (see ProfileForm's Save button)
+  const goals = useMemo(() => computeGoals(profile), [profile]);
+  const [justSaved, setJustSaved] = useState(false);
+  function saveProfile(next) {
+    setProfile(next);
+    setShowSettings(false);
+    setJustSaved(true);
+    setTimeout(() => setJustSaved(false), 2500);
+  }
 
   const totals = useMemo(() => {
     const t = Object.fromEntries(NUT_KEYS.map((k) => [k, 0]));
@@ -699,7 +722,7 @@ export default function App() {
       const t = Object.fromEntries(NUT_KEYS.map((k) => [k, 0]));
       list.forEach((f) => NUT_KEYS.forEach((k) => (t[k] += Number(f[k]) || 0)));
       const ctx = buildContext(goals, t, list, profile);
-      const obj = await callClaudeTool(INTERP_SYS, ctx, COACH_TOOL);
+      const obj = await callClaudeTool(INTERP_SYS, ctx, REPORT_TOOL);
       setInterpretation(obj);
     } catch { /* interpretation is best-effort */ }
   }
@@ -726,7 +749,7 @@ export default function App() {
       const obj = await callClaudeTool(SUMMARY_SYS, ctx, REPORT_TOOL);
       setReport(obj);
     } catch (e) {
-      setReport({ strengths: [], gaps: [], tomorrow: [e.message || "Couldn't build the report — try again."] });
+      setReport({ strengths: [], opportunities: [], recommendations: [], easyWins: [e.message || "Couldn't build the report — try again."] });
     } finally { setReportBusy(false); }
   }
 
@@ -819,9 +842,14 @@ export default function App() {
               <ChevronDown size={16} color={C.muted}
                 style={{ transform: showSettings ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
             </button>
+            {justSaved && !showSettings && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, color: C.green, fontSize: 12.5, fontWeight: 600 }}>
+                <Check size={14} /> Targets updated
+              </div>
+            )}
             {showSettings && (
               <div style={{ marginTop: 14 }}>
-                <ProfileForm p={profile} onChange={updateProfile} />
+                <ProfileForm initial={profile} onSave={saveProfile} />
               </div>
             )}
           </div>
@@ -834,19 +862,15 @@ export default function App() {
           </div>
         ) : (
           <>
-            {/* coach interpretation — structured bullets */}
-            {interpretation && (
-              <CoachCard>
-                <CoachPoints summary={interpretation.summary} points={interpretation.points} />
-              </CoachCard>
-            )}
+            {/* coach interpretation — Strengths / Opportunities / Recommendations / Easy wins */}
+            {interpretation && <ReportCard data={interpretation} label="Coach" />}
 
             {/* food table — right below the coach, per how you actually use this */}
             <SectionTitle>What you ate</SectionTitle>
             <FoodTable foods={foods} totals={totals} goals={goals} onHalve={halve} onRemove={remove} />
             <p style={{ color: C.muted, fontSize: 12, marginTop: 8 }}>
-              Tap &frac12; to halve a portion or the trash icon to remove it. Rows tinted amber were estimated —
-              tell me the real portion above and I&apos;ll fold it in.
+              Tap &frac12; to halve a portion or the trash icon to remove it. Items marked &ldquo;est.&rdquo;
+              assumed a typical serving — tell me the real portion above and I&apos;ll fold it in.
             </p>
 
             {/* today's chart — signature */}
@@ -991,34 +1015,29 @@ function CoachPoints({ summary, points, compact }) {
 }
 
 /* End-of-day report — three labeled, icon-coded sections. */
-function ReportCard({ data }) {
-  const groups = [
-    { title: "Strengths", status: "good", items: data.strengths || [] },
-    { title: "Gaps", status: "gap", items: data.gaps || [] },
-    { title: "Tomorrow's focus", status: "tip", items: data.tomorrow || [] },
-  ].filter((g) => g.items.length > 0);
+function ReportCard({ data, label = "Today's report" }) {
+  const groups = ["strengths", "opportunities", "recommendations", "easyWins"]
+    .map((key) => ({ key, ...REPORT_META[key], items: data[key] || [] }))
+    .filter((g) => g.items.length > 0);
+  if (!groups.length) return null;
   return (
-    <CoachCard label="Today's report">
+    <CoachCard label={label}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        {groups.map((g) => {
-          const meta = COACH_META[g.status];
-          const Icon = meta.Icon;
-          return (
-            <div key={g.title}>
-              <div style={{ fontFamily: FONT_MONO, fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", color: C.muted, marginBottom: 6 }}>
-                {g.title}
-              </div>
-              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
-                {g.items.map((text, i) => (
-                  <li key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 14, lineHeight: 1.5, color: C.ink }}>
-                    <Icon size={15} color={meta.color} style={{ marginTop: 2, flexShrink: 0 }} />
-                    <span>{text}</span>
-                  </li>
-                ))}
-              </ul>
+        {groups.map((g) => (
+          <div key={g.key}>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", color: C.muted, marginBottom: 6 }}>
+              {g.title}
             </div>
-          );
-        })}
+            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+              {g.items.map((text, i) => (
+                <li key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 14, lineHeight: 1.5, color: C.ink }}>
+                  <g.Icon size={15} color={g.color} style={{ marginTop: 2, flexShrink: 0 }} />
+                  <span>{text}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
       </div>
     </CoachCard>
   );
